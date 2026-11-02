@@ -1,0 +1,17 @@
+# Tool settings only. The planner runs from source (python -m planner.main),
+# so there is no packaging section.
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+# E, F: style errors, unused and undefined names
+# I: sorted imports
+# B: common bug patterns
+select = ["E", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Lets the tests import the planner package from the project root.
+pythonpath = ["."]
