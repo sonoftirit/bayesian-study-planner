@@ -3,3 +3,5 @@ pgmpy==1.1.2
 google-api-python-client==2.201.0
 google-auth-oauthlib==1.5.0
 google-auth-httplib2==0.4.4
+# Time zone data for zoneinfo (Windows has no built-in time zone database).
+tzdata==2026.6
