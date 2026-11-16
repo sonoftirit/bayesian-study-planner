@@ -23,7 +23,7 @@ P_MASTERY_HIGH = {
     ("Easy", "Intense"): 0.95,
     ("Easy", "Light"): 0.92,
     ("Easy", "Rest"): 0.88,
-    ("Hard", "Intense"): 0.85,
+    ("Hard", "Intense"): 0.90,
     ("Hard", "Light"): 0.60,
     ("Hard", "Rest"): 0.25,
 }
@@ -53,6 +53,14 @@ def difficulty_node(concept):
 
 def mastery_node(concept):
     return f"Mastery_{concept}"
+
+
+def two_state_rows(p_second):
+    """CPT rows [P(first state), P(second state)] from P(second state) values.
+
+    Rounding keeps values like 0.05 from showing up as 0.050000000000000044.
+    """
+    return [[round(1 - p, 2) for p in p_second], p_second]
 
 
 def pass_probability(mastered_count, stress):
@@ -122,7 +130,7 @@ def _mastery_cpd(concept):
     return TabularCPD(
         node,
         2,
-        [[1 - p for p in high], high],
+        two_state_rows(high),
         evidence=[parent, "Action"],
         evidence_card=[2, 3],
         state_names={
@@ -138,7 +146,7 @@ def _stress_cpd():
     return TabularCPD(
         "Stress",
         2,
-        [[1 - p for p in high], high],
+        two_state_rows(high),
         evidence=["Action", "DaysLeft"],
         evidence_card=[3, 2],
         state_names={
@@ -159,7 +167,7 @@ def _exam_success_cpd():
     return TabularCPD(
         "ExamSuccess",
         2,
-        [[1 - p for p in passes], passes],
+        two_state_rows(passes),
         evidence=[*mastery_parents, "Stress"],
         evidence_card=[2, 2, 2, 2],
         state_names={

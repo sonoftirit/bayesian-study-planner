@@ -89,13 +89,13 @@ The same table is used for all three concepts.
 | Easy | Intense | 0.05 | 0.95 | An easy concept plus a full study block is almost certainly mastered. |
 | Easy | Light | 0.08 | 0.92 | One hour is plenty to refresh an easy concept, so it is nearly as good as an intense block. |
 | Easy | Rest | 0.12 | 0.88 | Easy concepts are mostly known already. Skipping one day loses little. |
-| Hard | Intense | 0.15 | 0.85 | Five focused hours give a hard concept a good chance of being mastered, but it is not guaranteed. |
+| Hard | Intense | 0.10 | 0.90 | Five focused hours are usually enough to master a hard concept. It stays a little below Easy + Intense (0.95) because hard material is never certain. |
 | Hard | Light | 0.40 | 0.60 | One hour helps with a hard concept but often is not enough. A little better than a coin flip. |
 | Hard | Rest | 0.75 | 0.25 | Without study, a hard concept usually stays poorly understood. |
 
 **Pattern:** for every action, Easy is more likely to be mastered than Hard.
 For every difficulty, Intense > Light > Rest. The *gap* between actions is
-much larger for hard concepts (0.85 vs 0.25) than for easy ones (0.95 vs 0.88).
+much larger for hard concepts (0.90 vs 0.25) than for easy ones (0.95 vs 0.88).
 This is the key effect the planner exploits: studying pays off most where the
 material is hard.
 
@@ -175,7 +175,7 @@ students (see the utility function in the README).
 | Change from the first draft | Reason |
 |---|---|
 | Hard + Light mastery raised from 0.45 to **0.60** | With 0.45 a one-hour review was nearly worthless for a hard concept, so an average student was always pushed to Intense. An hour of focused review realistically gives a better-than-even chance. |
-| Hard + Intense raised from 0.80 to **0.85**, and Hard + Rest from 0.20 to **0.25** | Shifts the whole Hard row up together, so the order Intense > Light > Rest and the large gap between them stay the same. A student who rests still remembers a little of a hard concept. |
+| Hard + Intense raised from 0.80 to **0.90**, and Hard + Rest from 0.20 to **0.25** | Shifts the Hard row up while keeping the order Intense > Light > Rest and the large gap between them. A student who rests still remembers a little of a hard concept. The final step from 0.85 to 0.90 came from an independent review. At 0.85 the struggling student's Intense won by only 2.85 points, and changing one probability by 0.05 could flip it. At 0.90 the margin is 5.81, and the other two demo students are unaffected. |
 | Rest + Few stress raised from 0.35 to **0.40** | Taking a day off right before the exam should worry the student a bit more than a short review does. With 0.35, Rest and Light were equally calm. |
 | Easy + Light raised from 0.90 to **0.92**, and Easy + Rest from 0.85 to **0.88** | Easy concepts are largely known already, so skipping a day should cost very little. With the lower values even an advanced student was told to study. |
 | Light stress lowered (Few 0.40 → **0.35**, Many 0.20 unchanged) and Intense + Many raised from 0.45 to **0.50** | Makes the difference between a 1-hour and a 5-hour day more pronounced, which matches how tiring a mandatory 5-hour block is. |
