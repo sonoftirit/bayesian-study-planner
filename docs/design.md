@@ -164,7 +164,53 @@ The full resulting table:
 | 15 | High | High | High | Low | 3 | 0.05 | 0.95 |
 | 16 | High | High | High | High | 3 | 0.20 | 0.80 |
 
-## 4. How the numbers were tuned
+## 4. Inference task
+
+**Query variables:** `ExamSuccess` and `Stress`.
+
+**Evidence:** `Difficulty_A`, `Difficulty_B`, `Difficulty_C`, `DaysLeft`, and
+the action being evaluated.
+
+For **each** action `a` (Intense, Light, Rest), the planner computes the joint
+distribution
+
+> **P(ExamSuccess, Stress | Difficulty_A, Difficulty_B, Difficulty_C, DaysLeft, Action = a)**
+
+using pgmpy's built-in **Variable Elimination** algorithm. This is exact
+inference: it sums out the hidden `Mastery` nodes without any sampling or
+approximation.
+
+Why these two variables, and why *jointly*:
+
+- The assignment asks for a decision that balances **exam success** against
+  **stress**, so those are the two outcomes the utility function scores.
+- `Stress` is a parent of `ExamSuccess`, so the two are **not independent**.
+  Querying them separately and multiplying would give wrong probabilities. The
+  joint query returns the correct probability of each of the four
+  combinations, which is exactly what the utility table needs.
+
+In code, this is `query_outcomes(evidence, action)` in
+[`planner/decision.py`](../planner/decision.py). It returns a dictionary such
+as `{("Pass", "Low"): 0.26, ...}`.
+
+**Worked example: struggling student** (all concepts Hard, Few days left):
+
+| Action | Pass, Low stress | Pass, High stress | Fail, Low stress | Fail, High stress | P(Pass) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Intense | 0.262 | 0.506 | 0.038 | 0.194 | **0.767** |
+| Light | 0.400 | 0.165 | 0.250 | 0.185 | 0.565 |
+| Rest | 0.182 | 0.078 | 0.418 | 0.322 | 0.260 |
+
+Each row sums to 1. Intense gives by far the best chance of passing, but mostly
+with high stress. Weighing that trade-off is the job of the utility function in
+the next stage.
+
+The results were cross-checked against an independent brute-force calculation
+that multiplies all CPTs together and sums over the hidden variables. The two
+agree to within 1e-15. The tests in `tests/test_decision.py` also compare one
+case against a hand calculation.
+
+## 5. How the numbers were tuned
 
 The assignment requires the planner to choose **different actions for
 different students**, and the choice must come from the model rather than

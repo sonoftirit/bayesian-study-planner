@@ -65,7 +65,7 @@ decision** rather than a guess.
 ### 2. The Bayesian network
 
 The model has **10 discrete variables**. Every probability in it is chosen by
-hand and justified in the design document.
+hand and justified in the [design document](docs/design.md).
 
 | Variable | States | Depends on | Meaning |
 |---|---|---|---|
@@ -153,8 +153,8 @@ to `docs/results.md`.
 | 0 | Project setup (environment, dependencies, repository) | ✅ |
 | 1 | Continuous integration with GitHub Actions | ✅ |
 | 1.5 | Google Calendar connection test (OAuth login, test event) | ✅ |
-| 2 | Bayesian network structure and probability tables | ⏳ |
-| 3 | Inference with Variable Elimination | ⏳ |
+| 2 | Bayesian network structure and probability tables | ✅ |
+| 3 | Inference with Variable Elimination | ✅ |
 | 4 | Utility function and decision making | ⏳ |
 | 5 | Full Google Calendar integration | ⏳ |
 | 6 | Command-line program | ⏳ |
@@ -238,18 +238,23 @@ same three commands on every push and pull request.
 ```
 bayesian-study-planner/
 ├── .github/workflows/ci.yml   # CI: lint + tests on every push and pull request
+├── docs/
+│   └── design.md              # variables, structure, every CPT with justifications
 ├── planner/
 │   ├── __init__.py
+│   ├── network.py             # Bayesian network structure and CPTs (build_model)
+│   ├── decision.py            # inference: P(ExamSuccess, Stress | evidence, action)
 │   └── calendar_client.py     # Google OAuth login and event creation
 ├── tests/
 │   ├── test_package.py
+│   ├── test_network.py
+│   ├── test_decision.py
 │   └── test_calendar_client.py
 ├── pyproject.toml             # ruff and pytest settings
 ├── requirements.txt           # runtime dependencies (pinned)
 └── requirements-dev.txt       # testing and linting tools (pinned)
 ```
 
-Planned additions: `planner/network.py` (the Bayesian network),
-`planner/decision.py` (inference, utility and best action),
+Planned additions: utility and best-action logic in `planner/decision.py`,
 `planner/scenarios.py`, `planner/main.py` (command-line program), and
-`docs/design.md` and `docs/results.md`.
+`docs/results.md`.
