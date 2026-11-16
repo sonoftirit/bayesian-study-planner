@@ -15,3 +15,7 @@ select = ["E", "F", "I", "B"]
 testpaths = ["tests"]
 # Lets the tests import the planner package from the project root.
 pythonpath = ["."]
+filterwarnings = [
+    # pgmpy warns about one of its own modules that this project never uses.
+    "ignore:`pgmpy.estimators.StructureScore` is deprecated:FutureWarning",
+]
