@@ -3,7 +3,8 @@
 This document describes the Bayesian network in
 [`planner/network.py`](../planner/network.py): its variables, its structure,
 every conditional probability table (CPT), and the reasoning behind each
-number. All tables below are printed directly from the code, so they match the
+number. It also covers how [`planner/decision.py`](../planner/decision.py)
+queries the network and turns the answer into a decision. All tables below are printed directly from the code, so they match the
 model exactly.
 
 ## 1. Variables
@@ -203,20 +204,87 @@ as `{("Pass", "Low"): 0.26, ...}`.
 
 Each row sums to 1. Intense gives by far the best chance of passing, but mostly
 with high stress. Weighing that trade-off is the job of the utility function in
-the next stage.
+section 5.
 
 The results were cross-checked against an independent brute-force calculation
 that multiplies all CPTs together and sums over the hidden variables. The two
 agree to within 1e-15. The tests in `tests/test_decision.py` also compare one
 case against a hand calculation.
 
-## 5. How the numbers were tuned
+## 5. Utility and decision
+
+**Utility function** U(ExamSuccess, Stress):
+
+| | Stress = Low | Stress = High |
+|---|:---:|:---:|
+| **Pass** | 100 | 70 |
+| **Fail** | 20 | 0 |
+
+Passing is what matters most (a pass with high stress still scores 70, far
+above any fail). Low stress is a bonus worth 20 to 30 points, so the planner
+will accept a slightly lower chance of passing in exchange for a much calmer
+student.
+
+**Expected utility** of an action is the utility of each outcome weighted by
+its probability from section 4:
+
+> **EU(a) = Σ P(success, stress | evidence, Action = a) × U(success, stress)**
+
+**Decision rule:** compute EU for Intense, Light and Rest, and choose the
+highest. In code, `best_action(evidence)` returns the chosen action together
+with all three EU values. On an exact tie, the action listed first (Intense)
+wins, so the result is always deterministic.
+
+**Input checks:** the planner rejects evidence that is incomplete, contains
+extra variables, or uses an unknown state. Without this check, pgmpy would
+quietly average over a missing variable such as `DaysLeft` and return a
+plausible-looking but wrong recommendation.
+
+**Hand-checked example** (advanced student, Rest): each Easy concept is
+mastered with probability 0.88 and stress is High with probability 0.05. This
+gives P(Pass, Low) = 0.8132, P(Pass, High) = 0.0353 and P(Fail, Low) = 0.1368,
+so EU = 100 × 0.8132 + 70 × 0.0353 + 20 × 0.1368 = **86.53**. The full
+derivation is in `tests/test_decision.py`, and the test checks the code gets
+the same number.
+
+### Demo scenarios
+
+| Scenario | Evidence (A, B, C, DaysLeft) | EU Intense | EU Light | EU Rest | Chosen | Margin |
+|---|---|:---:|:---:|:---:|:---:|:---:|
+| Struggling | Hard, Hard, Hard, Few | **62.33** | 56.51 | 32.02 | Intense | 5.81 |
+| Average | Easy, Hard, Easy, Many | 72.16 | **76.57** | 72.95 | Light | 3.62 |
+| Advanced | Easy, Easy, Easy, Many | 73.13 | 83.18 | **86.53** | Rest | 3.35 |
+
+Why each action wins:
+
+- **Struggling → Intense.** Intense raises P(Pass) to 0.77, compared with 0.57
+  for Light and 0.26 for Rest. It also has the highest chance of high stress
+  (0.70), but with three hard concepts and few days left, the gain in passing
+  is worth far more than the stress penalty. Resting is the worst choice: it
+  barely improves mastery and, this close to the exam, is not even calming
+  (0.40 high stress).
+- **Average → Light.** Intense still gives the best P(Pass) (0.82 vs 0.77),
+  but only one concept is hard, so the extra pass chance is small. It comes
+  with a 0.50 chance of high stress instead of 0.20, which costs more than it
+  gains. Rest is the calmest (0.05) but leaves the hard concept under-learned
+  (P(Pass) 0.68). A one-hour review is the best balance.
+- **Advanced → Rest.** All concepts are already easy, so P(Pass) is almost the
+  same for every action (0.84 to 0.86). The decision therefore comes down to
+  stress, and a rest day with plenty of time left is by far the calmest
+  (0.05 vs 0.20 for Light and 0.50 for Intense).
+
+None of these answers is stored anywhere in the code. `planner/scenarios.py`
+holds only the evidence, and `tests/test_scenarios.py` checks that the model
+produces these actions and that each winner leads by at least 1 utility point,
+so a small change to one probability cannot quietly flip a demo result.
+
+## 6. How the numbers were tuned
 
 The assignment requires the planner to choose **different actions for
 different students**, and the choice must come from the model rather than
 being hard-coded. Before the CPTs were written into the code, candidate values
 were checked by computing the expected utility of each action for the demo
-students (see the utility function in the README).
+students (see the utility function in section 5).
 
 | Change from the first draft | Reason |
 |---|---|
@@ -229,5 +297,5 @@ students (see the utility function in the README).
 
 With the final values, all three demo students get a different action, each
 with a clear margin. All values still follow the direction-of-effect patterns
-described in section 3. The full expected-utility results will be documented
-in `docs/results.md`.
+described in section 3. The resulting expected utilities are in section 5,
+and more scenarios will be documented in `docs/results.md`.

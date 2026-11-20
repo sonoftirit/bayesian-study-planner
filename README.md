@@ -118,7 +118,9 @@ likely each outcome is:
 EU(a) = Σ  P(success, stress | evidence, a) × U(success, stress)
 ```
 
-The planner picks the action with the **highest expected utility**.
+The planner picks the action with the **highest expected utility**. In code,
+`best_action(evidence)` in `planner/decision.py` returns the chosen action and
+the expected utility of every action.
 
 ### 5. Calendar
 
@@ -133,18 +135,20 @@ Calendar, in the `America/Vancouver` time zone:
 
 ## Demo scenarios
 
-To show that the planner adapts to the student, it will be run on predefined
-student profiles. The expected behaviour is:
+To show that the planner adapts to the student, it is run on three predefined
+student profiles (in `planner/scenarios.py`). Expected utility of each action,
+out of 100:
 
-| Scenario | Evidence | Expected action |
-|---|---|---|
-| Struggling student | All concepts Hard, few days left | Intense |
-| Average student | Mixed difficulty | Light |
-| Advanced student | All concepts Easy, many days left | Rest |
+| Scenario | Evidence (A, B, C, days left) | Intense | Light | Rest | Chosen |
+|---|---|:---:|:---:|:---:|:---:|
+| Struggling student | Hard, Hard, Hard, Few | **62.3** | 56.5 | 32.0 | Intense |
+| Average student | Easy, Hard, Easy, Many | 72.2 | **76.6** | 73.0 | Light |
+| Advanced student | Easy, Easy, Easy, Many | 73.1 | 83.2 | **86.5** | Rest |
 
-These answers are **not hard-coded**. They have to come out of the network and
-the utility function. Full results with expected-utility tables will be added
-to `docs/results.md`.
+These answers are **not hard-coded**. The scenarios contain only the evidence;
+the actions come out of the network and the utility function. Why each action
+wins is explained in the [design document](docs/design.md#5-utility-and-decision).
+More scenarios will be added to `docs/results.md`.
 
 ## Project status
 
@@ -155,7 +159,7 @@ to `docs/results.md`.
 | 1.5 | Google Calendar connection test (OAuth login, test event) | ✅ |
 | 2 | Bayesian network structure and probability tables | ✅ |
 | 3 | Inference with Variable Elimination | ✅ |
-| 4 | Utility function and decision making | ⏳ |
+| 4 | Utility function and decision making | ✅ |
 | 5 | Full Google Calendar integration | ⏳ |
 | 6 | Command-line program | ⏳ |
 | 7 | Scenario results | ⏳ |
@@ -243,18 +247,19 @@ bayesian-study-planner/
 ├── planner/
 │   ├── __init__.py
 │   ├── network.py             # Bayesian network structure and CPTs (build_model)
-│   ├── decision.py            # inference: P(ExamSuccess, Stress | evidence, action)
+│   ├── decision.py            # inference, utility, expected utility, best_action
+│   ├── scenarios.py           # predefined demo students (evidence only)
 │   └── calendar_client.py     # Google OAuth login and event creation
 ├── tests/
 │   ├── test_package.py
 │   ├── test_network.py
 │   ├── test_decision.py
+│   ├── test_scenarios.py
 │   └── test_calendar_client.py
 ├── pyproject.toml             # ruff and pytest settings
 ├── requirements.txt           # runtime dependencies (pinned)
 └── requirements-dev.txt       # testing and linting tools (pinned)
 ```
 
-Planned additions: utility and best-action logic in `planner/decision.py`,
-`planner/scenarios.py`, `planner/main.py` (command-line program), and
+Planned additions: `planner/main.py` (command-line program) and
 `docs/results.md`.
