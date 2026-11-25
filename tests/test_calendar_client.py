@@ -2,16 +2,17 @@
 
 import datetime
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
-from zoneinfo import ZoneInfo
 
 import pytest
+from google.auth.exceptions import RefreshError
+from googleapiclient.errors import HttpError
 
 import planner.calendar_client as calendar_client
 from planner.calendar_client import (
     CALENDAR_NAME,
     SCOPES,
-    TIME_ZONE,
     build_event,
     create_event_for_action,
     delete_event,
@@ -19,6 +20,7 @@ from planner.calendar_client import (
 )
 
 DAY = datetime.date(2026, 11, 25)
+STUDY_PLANNER_ONLY = [{"items": [{"id": "sp", "summary": CALENDAR_NAME}]}]
 
 
 def fake_service(calendar_pages=({"items": []},), created_calendar_id="new-id"):
@@ -38,36 +40,31 @@ def inserted_event(service):
     return insert.call_args.kwargs
 
 
+def http_error(status):
+    """An HttpError like the one the Google client raises for `status`."""
+    return HttpError(MagicMock(status=status, reason="error"), b"{}")
+
+
 # --- Event bodies ------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("action", "title", "end_time"),
+    ("action", "title", "end"),
     [
-        ("Intense", "Intense study block", "15:00:00"),
-        ("Light", "Light review session", "11:00:00"),
+        ("Intense", "Intense study block", "2026-11-25T15:00:00"),
+        ("Light", "Light review session", "2026-11-25T11:00:00"),
     ],
 )
-def test_timed_events_have_the_right_title_and_length(action, title, end_time):
+def test_timed_events_have_the_right_title_and_length(action, title, end):
     event = build_event(action, DAY)
 
     assert event["summary"] == title
-    # Check the local clock time, not the UTC offset, because Vancouver's
-    # offset depends on the installed time zone data.
-    assert event["start"]["dateTime"].startswith("2026-11-25T10:00:00")
-    assert event["end"]["dateTime"].startswith(f"2026-11-25T{end_time}")
-    assert event["start"]["timeZone"] == "America/Vancouver"
-    assert event["end"]["timeZone"] == "America/Vancouver"
-
-
-def test_timed_event_times_carry_the_vancouver_offset():
-    event = build_event("Light", DAY)
-    start = datetime.datetime.fromisoformat(event["start"]["dateTime"])
-    end = datetime.datetime.fromisoformat(event["end"]["dateTime"])
-
-    expected = datetime.datetime(2026, 11, 25, 10, tzinfo=ZoneInfo(TIME_ZONE))
-    assert start == expected
-    assert end - start == datetime.timedelta(hours=1)
+    # Local clock times with no UTC offset: Google applies the time zone.
+    assert event["start"] == {
+        "dateTime": "2026-11-25T10:00:00",
+        "timeZone": "America/Vancouver",
+    }
+    assert event["end"] == {"dateTime": end, "timeZone": "America/Vancouver"}
 
 
 def test_rest_is_an_all_day_event():
@@ -127,6 +124,15 @@ def test_calendar_on_a_later_page_is_found():
     assert [call.kwargs["pageToken"] for call in list_calls] == [None, "page-2"]
 
 
+def test_hidden_calendars_are_searched_too():
+    service = fake_service(STUDY_PLANNER_ONLY)
+
+    find_or_create_calendar(service)
+
+    list_call = service.calendarList.return_value.list.call_args
+    assert list_call.kwargs["showHidden"] is True
+
+
 def test_missing_calendar_is_created_in_vancouver_time():
     service = fake_service([{"items": [{"id": "main", "summary": "Me"}]}])
 
@@ -141,7 +147,7 @@ def test_missing_calendar_is_created_in_vancouver_time():
 
 @pytest.mark.parametrize("action", ["Intense", "Light", "Rest"])
 def test_event_goes_into_the_study_planner_calendar(action):
-    service = fake_service([{"items": [{"id": "sp", "summary": CALENDAR_NAME}]}])
+    service = fake_service(STUDY_PLANNER_ONLY)
 
     create_event_for_action(action, DAY, service)
 
@@ -151,7 +157,7 @@ def test_event_goes_into_the_study_planner_calendar(action):
 
 
 def test_created_event_is_returned():
-    service = fake_service([{"items": [{"id": "sp", "summary": CALENDAR_NAME}]}])
+    service = fake_service(STUDY_PLANNER_ONLY)
     created = {"id": "evt", "htmlLink": "https://calendar.google.com/event?eid=x"}
     service.events.return_value.insert.return_value.execute.return_value = created
 
@@ -165,13 +171,40 @@ def test_bad_input_makes_no_api_calls():
     assert service.mock_calls == []
 
 
+def test_bad_input_does_not_start_a_login(monkeypatch):
+    def fail():
+        raise AssertionError("get_service should not be called")
+
+    monkeypatch.setattr(calendar_client, "get_service", fail)
+    with pytest.raises(ValueError):
+        create_event_for_action("Nap", DAY)
+
+
 def test_saved_login_is_used_when_no_service_is_given(monkeypatch):
-    service = fake_service([{"items": [{"id": "sp", "summary": CALENDAR_NAME}]}])
+    service = fake_service(STUDY_PLANNER_ONLY)
     monkeypatch.setattr(calendar_client, "get_service", lambda: service)
 
     create_event_for_action("Rest", DAY)
 
     assert inserted_event(service)["calendarId"] == "sp"
+
+
+def test_calendar_the_app_did_not_create_gives_a_clear_error():
+    service = fake_service(STUDY_PLANNER_ONLY)
+    insert = service.events.return_value.insert.return_value
+    insert.execute.side_effect = http_error(403)
+
+    with pytest.raises(PermissionError, match="Rename or delete that calendar"):
+        create_event_for_action("Light", DAY, service)
+
+
+def test_other_google_errors_are_not_hidden():
+    service = fake_service(STUDY_PLANNER_ONLY)
+    insert = service.events.return_value.insert.return_value
+    insert.execute.side_effect = http_error(500)
+
+    with pytest.raises(HttpError):
+        create_event_for_action("Light", DAY, service)
 
 
 def test_delete_event_targets_the_given_calendar():
@@ -205,56 +238,87 @@ def login(monkeypatch, tmp_path):
     """Point the login code at a temporary token file and a fake browser flow."""
     token_file = tmp_path / "token.json"
     monkeypatch.setattr(calendar_client, "TOKEN_FILE", token_file)
-    flow_class = MagicMock()
-    new_creds = (
-        flow_class.from_client_secrets_file.return_value.run_local_server.return_value
+    flow = MagicMock()
+    browser_login = flow.from_client_secrets_file.return_value.run_local_server
+    browser_login.return_value.to_json.return_value = '{"new": "login"}'
+    monkeypatch.setattr(calendar_client, "InstalledAppFlow", flow)
+    return SimpleNamespace(
+        token_file=token_file, flow=flow, new_creds=browser_login.return_value
     )
-    new_creds.to_json.return_value = '{"new": "login"}'
-    monkeypatch.setattr(calendar_client, "InstalledAppFlow", flow_class)
-    return token_file, flow_class, new_creds
+
+
+def expired_login(monkeypatch, refresh_token="refresh"):
+    """Make the saved login load as an expired one with the right permissions."""
+    creds = MagicMock(valid=False, expired=True, refresh_token=refresh_token)
+    creds.has_scopes.return_value = True
+    loader = MagicMock()
+    loader.from_authorized_user_file.return_value = creds
+    monkeypatch.setattr(calendar_client, "Credentials", loader)
+    return creds
 
 
 def test_saved_login_with_the_right_permissions_is_reused(login):
-    token_file, flow_class, _ = login
-    write_token(token_file, SCOPES)
+    write_token(login.token_file, SCOPES)
+    saved = login.token_file.read_text()
+
+    calendar_client.get_credentials()
+
+    login.flow.from_client_secrets_file.assert_not_called()
+    assert login.token_file.read_text() == saved
+
+
+@pytest.mark.parametrize(
+    "old_scopes",
+    [
+        # The Stage 1.5 login, which cannot create the Study Planner calendar.
+        ["https://www.googleapis.com/auth/calendar.events"],
+        # Only one of the two permissions the app needs.
+        [SCOPES[0]],
+    ],
+)
+def test_saved_login_missing_a_permission_asks_to_log_in_again(login, old_scopes):
+    write_token(login.token_file, old_scopes)
 
     creds = calendar_client.get_credentials()
 
-    assert creds.has_scopes(SCOPES)
-    flow_class.from_client_secrets_file.assert_not_called()
-
-
-def test_saved_login_with_old_permissions_asks_to_log_in_again(login):
-    # The Stage 1.5 login only allowed calendar.events, which cannot create
-    # the Study Planner calendar.
-    token_file, flow_class, new_creds = login
-    write_token(token_file, ["https://www.googleapis.com/auth/calendar.events"])
-
-    creds = calendar_client.get_credentials()
-
-    assert creds is new_creds
-    flow_class.from_client_secrets_file.assert_called_once()
-    assert flow_class.from_client_secrets_file.call_args.args[1] == SCOPES
-    assert token_file.read_text() == '{"new": "login"}'
+    assert creds is login.new_creds
+    assert login.flow.from_client_secrets_file.call_args.args[1] == SCOPES
+    assert login.token_file.read_text() == '{"new": "login"}'
 
 
 def test_first_run_opens_the_browser_login(login):
-    token_file, flow_class, new_creds = login
-
-    assert calendar_client.get_credentials() is new_creds
-    assert token_file.read_text() == '{"new": "login"}'
+    assert calendar_client.get_credentials() is login.new_creds
+    assert login.token_file.read_text() == '{"new": "login"}'
 
 
 def test_expired_login_is_refreshed_without_the_browser(login, monkeypatch):
-    token_file, flow_class, _ = login
-    token_file.write_text("{}")
-    expired = MagicMock(valid=False, expired=True, refresh_token="refresh")
-    expired.to_json.return_value = '{"refreshed": true}'
-    fake_credentials = MagicMock()
-    fake_credentials.from_authorized_user_file.return_value = expired
-    monkeypatch.setattr(calendar_client, "Credentials", fake_credentials)
+    login.token_file.write_text("{}")
+    creds = expired_login(monkeypatch)
 
-    assert calendar_client.get_credentials() is expired
-    expired.refresh.assert_called_once()
-    flow_class.from_client_secrets_file.assert_not_called()
-    assert token_file.read_text() == '{"refreshed": true}'
+    def successful_refresh(request):
+        creds.valid = True
+
+    creds.refresh.side_effect = successful_refresh
+    creds.to_json.return_value = '{"refreshed": true}'
+
+    assert calendar_client.get_credentials() is creds
+    login.flow.from_client_secrets_file.assert_not_called()
+    assert login.token_file.read_text() == '{"refreshed": true}'
+
+
+def test_revoked_or_old_login_asks_to_log_in_again(login, monkeypatch):
+    # In Google's "Testing" mode a saved login stops working after 7 days.
+    login.token_file.write_text("{}")
+    creds = expired_login(monkeypatch)
+    creds.refresh.side_effect = RefreshError("invalid_grant")
+
+    assert calendar_client.get_credentials() is login.new_creds
+    assert login.token_file.read_text() == '{"new": "login"}'
+
+
+def test_login_without_a_refresh_token_opens_the_browser(login, monkeypatch):
+    login.token_file.write_text("{}")
+    creds = expired_login(monkeypatch, refresh_token=None)
+
+    assert calendar_client.get_credentials() is login.new_creds
+    creds.refresh.assert_not_called()

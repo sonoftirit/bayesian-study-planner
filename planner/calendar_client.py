@@ -8,12 +8,13 @@ connection; it finds (or creates) that calendar without adding any events.
 import datetime
 from pathlib import Path
 from typing import NamedTuple
-from zoneinfo import ZoneInfo
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 SCOPES = [
     # Create the app's own calendars, and manage events only in those. The app
@@ -49,8 +50,8 @@ def get_credentials():
     """Return valid credentials, logging in through the browser if needed."""
     creds = None
     if TOKEN_FILE.exists():
-        # Load without passing SCOPES: passing them would overwrite the scopes
-        # the saved login was really granted, and hide a missing permission.
+        # Load without passing SCOPES: passing them would replace the scopes
+        # saved with this login, and hide a missing permission.
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE))
         if not creds.has_scopes(SCOPES):
             creds = None  # permissions changed, so the user must log in again
@@ -58,8 +59,13 @@ def get_credentials():
         return creds
 
     if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-    else:
+        try:
+            creds.refresh(Request())
+        except RefreshError:
+            # In Google's "Testing" mode a saved login stops working after
+            # 7 days, and the user can also revoke it. Log in again instead.
+            creds = None
+    if not creds or not creds.valid:
         flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
         # port=0 picks any free local port for Google to redirect back to.
         creds = flow.run_local_server(port=0)
@@ -76,8 +82,10 @@ def find_or_create_calendar(service):
     """Return the ID of the "Study Planner" calendar, creating it if needed."""
     page_token = None
     while True:
-        # Google returns the calendar list in pages; follow them all.
-        page = service.calendarList().list(pageToken=page_token).execute()
+        # Google returns the calendar list in pages; follow them all. Include
+        # hidden calendars, or hiding Study Planner would create a duplicate.
+        request = service.calendarList().list(pageToken=page_token, showHidden=True)
+        page = request.execute()
         for calendar in page.get("items", []):
             if calendar.get("summary") == CALENDAR_NAME:
                 return calendar["id"]
@@ -93,8 +101,10 @@ def build_event(action, date):
     """Return the Google Calendar event body for `action` on `date`.
 
     Intense and Light are timed sessions starting at STUDY_START in Vancouver
-    time. Rest is an all-day event; Google treats its end date as exclusive,
-    so a one-day event ends on the next day.
+    time. The times are sent without a UTC offset, together with the time zone
+    name, so Google applies Vancouver's current offset itself. Rest is an
+    all-day event; Google treats its end date as exclusive, so a one-day event
+    ends on the next day.
     """
     if action not in EVENT_TYPES:
         raise ValueError(f"Action must be one of {list(EVENT_TYPES)}, got {action!r}.")
@@ -113,7 +123,7 @@ def build_event(action, date):
         event["start"] = {"date": date.isoformat()}
         event["end"] = {"date": next_day.isoformat()}
     else:
-        start = datetime.datetime.combine(date, STUDY_START, ZoneInfo(TIME_ZONE))
+        start = datetime.datetime.combine(date, STUDY_START)
         end = start + datetime.timedelta(hours=event_type.hours)
         event["start"] = {"dateTime": start.isoformat(), "timeZone": TIME_ZONE}
         event["end"] = {"dateTime": end.isoformat(), "timeZone": TIME_ZONE}
@@ -130,7 +140,18 @@ def create_event_for_action(action, date, service=None):
     if service is None:
         service = get_service()
     calendar_id = find_or_create_calendar(service)
-    return service.events().insert(calendarId=calendar_id, body=event).execute()
+    try:
+        return service.events().insert(calendarId=calendar_id, body=event).execute()
+    except HttpError as error:
+        # The app may only write to calendars it created itself. A "Study
+        # Planner" calendar made by hand (or by another app) is refused.
+        if error.status_code == 403:
+            raise PermissionError(
+                f"Cannot add events to the existing {CALENDAR_NAME!r} calendar "
+                "because this app did not create it. Rename or delete that "
+                "calendar in Google Calendar and run the planner again."
+            ) from error
+        raise
 
 
 def delete_event(service, calendar_id, event_id):
@@ -139,6 +160,7 @@ def delete_event(service, calendar_id, event_id):
 
 
 def main():
+    """Log in and make sure the Study Planner calendar exists."""
     calendar_id = find_or_create_calendar(get_service())
     print(f"Connected. The {CALENDAR_NAME!r} calendar has ID {calendar_id}")
 
