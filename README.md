@@ -125,13 +125,25 @@ the expected utility of every action.
 ### 5. Calendar
 
 The chosen action becomes an event in a dedicated "Study Planner" Google
-Calendar, in the `America/Vancouver` time zone:
+Calendar, in the `America/Vancouver` time zone. The planner finds that
+calendar, or creates it the first time, so your main calendar stays clean.
 
 | Action | Calendar event |
 |---|---|
-| **Intense** | "Intense study block", 5 hours, today |
-| **Light** | "Light review session", 1 hour, today |
-| **Rest** | All-day "Rest day", today |
+| **Intense** | "Intense study block", 10:00 to 15:00 (5 hours) |
+| **Light** | "Light review session", 10:00 to 11:00 (1 hour) |
+| **Rest** | All-day "Rest day" |
+
+In code, this is `create_event_for_action(action, date)` in
+`planner/calendar_client.py`. Running it twice for the same day adds the event
+twice.
+
+The planner asks Google for only two permissions:
+
+| Permission | Why |
+|---|---|
+| Make secondary calendars, and manage events on them | Create the "Study Planner" calendar and add events to it. The app cannot see or change events in any calendar it did not create, including your main one. |
+| See the list of your calendars | Find the "Study Planner" calendar again on later runs. This shows calendar names only, not their events. |
 
 ## Demo scenarios
 
@@ -160,7 +172,7 @@ More scenarios will be added to `docs/results.md`.
 | 2 | Bayesian network structure and probability tables | ✅ |
 | 3 | Inference with Variable Elimination | ✅ |
 | 4 | Utility function and decision making | ✅ |
-| 5 | Full Google Calendar integration | ⏳ |
+| 5 | Full Google Calendar integration | ✅ |
 | 6 | Command-line program | ⏳ |
 | 7 | Scenario results | ⏳ |
 | 8 | Final documentation and presentation | ⏳ |
@@ -222,8 +234,11 @@ python -m planner.calendar_client
 
 The first run opens your browser to log in. Because the app is in testing mode,
 Google shows an "unverified app" warning, which is expected for a personal
-project. The program then creates a 30-minute "Study Planner connection test"
-event in your calendar and prints a link to it.
+project. The program then finds or creates the "Study Planner" calendar and
+prints its ID. It does not add any events.
+
+While the app is in testing mode, Google ends the saved login after 7 days. The
+planner notices this and simply opens the browser login again.
 
 ## Running the tests
 
@@ -249,7 +264,7 @@ bayesian-study-planner/
 │   ├── network.py             # Bayesian network structure and CPTs (build_model)
 │   ├── decision.py            # inference, utility, expected utility, best_action
 │   ├── scenarios.py           # predefined demo students (evidence only)
-│   └── calendar_client.py     # Google OAuth login and event creation
+│   └── calendar_client.py     # Google login, Study Planner calendar, events
 ├── tests/
 │   ├── test_package.py
 │   ├── test_network.py
